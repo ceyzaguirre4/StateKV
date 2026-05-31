@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="StateKV: linear-time long-video understanding with frozen video VLMs.">
+    <title>StateKV</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;650;750;850&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="#">StateKV</a>
+      <nav class="nav" aria-label="Project navigation">
+        <a href="#overview">Problem</a>
+        <a href="#observations">Why It Works</a>
+        <a href="#statekv">Method</a>
+        <a href="#results">Results</a>
+        <a href="#runtime">Runtime</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">Long-video understanding</p>
+          <h1>StateKV</h1>
+          <p class="deck">
+            Turning pretrained video VLMs into linearly-scaling streaming systems without retraining.
+          </p>
+          <p class="authors">
+            <a href="https://ceyzaguirre4.github.io/">Cristobal Eyzaguirre</a>,
+            <a href="https://jiajunwu.com/">Jiajun Wu</a>,
+            <a href="https://www.niebles.net/">Juan Carlos Niebles</a>
+          </p>
+          <p class="affiliation">Stanford University</p>
+          <div class="actions" aria-label="Project links">
+            <a class="button primary" href="https://github.com/ceyzaguirre4/StateKV/tree/main">GitHub</a>
+            <a class="button" href="https://arxiv.org/abs/2605.31598">arXiv</a>
+            <a class="button" href="#citation">BibTeX</a>
+          </div>
+        </div>
+        <figure class="hero-media">
+          <img src="assets/statekv-animation.gif" alt="Animation of StateKV maintaining and updating compact state across frames.">
+        </figure>
+      </section>
+
+      <article class="article">
+        <section class="section intro" id="overview">
+          <p>
+            The biggest problem in video understanding today isn't the models. It's that we can barely run them.
+          </p>
+          <p>
+            Video VLMs have finally gotten good; even open-source models post surprisingly strong benchmark numbers. But these models are increasingly vital for long-horizon and streaming tasks such as autonomous driving and embodied robotics, where a system must integrate evidence over minutes or hours, often in real time. And that's exactly where today's architectures break down.
+          </p>
+          <p>
+            The central challenge is that computational cost grows quadratically with the length of the video. Because dominant architectures let each frame attend over all previous video tokens, the per-frame cost rises as the video grows, and the overall cost of processing the entire video scales quadratically with its length.
+          </p>
+          <p>
+            This creates a significant bottleneck for practical deployment and rules out real-time streaming applications entirely: a car that has driven for an hour is, in principle, harder to query than one that just pulled out of the driveway, even when both need an answer right now. But a real-time system needs its response time to stay flat as it keeps running. Linear overall complexity, or equivalently constant per-frame cost, is therefore central to scalable long-video understanding, and a critical prerequisite for streaming.
+          </p>
+        </section>
+
+        <section class="section figure-section" id="figure-1">
+          <figure class="paper-figure full">
+            <img src="assets/figure-1.svg" alt="Figure 1 comparing long-video cost scaling for full attention and efficient alternatives.">
+            <figcaption>Figure 1. Long-video inference becomes expensive when each frame carries the full history forward: full self-attention (gray) scales quadratically, while StateKV (red) keeps a linear cost.</figcaption>
+          </figure>
+        </section>
+
+        <section class="section narrow">
+          <p class="bridge">
+            Our goal was simple: turn a pretrained video VLM into a linearly-scaling system without retraining it.
+          </p>
+          <p>
+            To do that, we started by asking a simple question: does every frame really need access to the entire history?
+          </p>
+        </section>
+
+        <section class="section observations" id="observations">
+          <div class="section-heading">
+            <p class="eyebrow">Why this should work</p>
+            <h2>Two Observations</h2>
+          </div>
+
+          <div class="observation">
+            <div class="observation-copy">
+              <h3>Observation 1: Most of the past does not matter</h3>
+              <p>
+                When a video model processes a frame, it technically has access to every token from every previous frame.
+              </p>
+              <p>
+                But does it actually use all of them?
+              </p>
+              <p>
+                When we analyzed attention patterns in pretrained video VLMs, we found that most cross-frame attention is concentrated on a surprisingly small subset of tokens. In many cases, a few thousand carefully chosen tokens capture the overwhelming majority of the attention mass.
+              </p>
+              <p>
+                If we somehow knew which tokens those were, we could approximate the effect of full attention without paying the full quadratic cost.
+              </p>
+            </div>
+            <div class="figure-stack">
+              <figure class="paper-figure combined-figure">
+                <div class="combined-assets">
+                  <img src="assets/observation-1-concentration.png" alt="Attention concentration analysis for pretrained video VLMs.">
+                  <img class="stats-panel" src="assets/stats-assumption1.svg" alt="Summary statistics showing how top-B tokens capture historical attention mass.">
+                </div>
+                <figcaption>Supplementary Figure 6. Attention concentrates on a small subset of past tokens.</figcaption>
+              </figure>
+            </div>
+          </div>
+
+          <div class="observation flip">
+            <div class="observation-copy">
+              <h3>Observation 2: The important tokens change slowly</h3>
+              <p>
+                Finding the important tokens for frame <em>n</em> is only useful if we can also find them for frame <em>n+1</em>.
+              </p>
+              <p>
+                Fortunately, the set of useful tokens evolves gradually.
+              </p>
+              <p>
+                The tokens that matter for one frame tend to remain useful for the next frame, with only a small number of additions and removals over time.
+              </p>
+              <p>
+                This suggests that instead of recomputing an optimal memory from scratch, we can maintain and update a compact state as the video progresses.
+              </p>
+            </div>
+            <div class="figure-stack">
+              <figure class="paper-figure">
+                <img src="assets/observation-1-recall.png" alt="Weighted recall analysis for selected tokens across adjacent frames.">
+                <figcaption>Supplementary Figure 7. Useful tokens remain predictive across nearby frames.</figcaption>
+              </figure>
+              <figure class="paper-figure">
+                <img src="assets/observation-2-churn.png" alt="Token churn analysis showing that important token sets change gradually across frames.">
+                <figcaption>Supplementary Figure 8. Important tokens evolve gradually over time.</figcaption>
+              </figure>
+            </div>
+          </div>
+        </section>
+
+        <section class="section statekv" id="statekv">
+          <div class="section-heading">
+            <p class="eyebrow">The method</p>
+            <h2>StateKV</h2>
+          </div>
+
+          <div class="method-grid">
+            <div class="method-copy">
+              <p>
+                StateKV maintains two memories.
+              </p>
+              <p>
+                A detailed state stores every token so that we preserve full information for final decoding.
+              </p>
+              <p>
+                A compressed state stores only the most important tokens and is used to carry information between frames.
+              </p>
+              <p>
+                After processing each frame, we update this compressed state using attention scores and carry it forward to the next frame.
+              </p>
+              <p>
+                The result is a recurrent architecture with fixed compute per frame, built entirely from a frozen pretrained transformer.
+              </p>
+            </div>
+            <figure class="paper-figure method-figure">
+              <img src="assets/method-statekv.png" alt="StateKV method diagram showing detailed and compressed states.">
+              <figcaption>StateKV keeps full information for decoding while carrying a compact recurrent memory between frames.</figcaption>
+            </figure>
+          </div>
+
+          <figure class="animation">
+            <img src="assets/statekv-animation.gif" alt="StateKV animation showing compact state updates over a video stream.">
+            <figcaption>StateKV updates a compact state after each frame and reuses it for the next step.</figcaption>
+          </figure>
+        </section>
+
+        <section class="section results" id="results">
+          <div class="section-heading">
+            <p class="eyebrow">Results</p>
+            <h2>Better Compute-Quality Tradeoffs</h2>
+          </div>
+          <p class="lead">
+            StateKV changes the Pareto frontier in two ways. First, it lets us significantly reduce computation while maintaining, or mostly maintaining, performance. Second, the compute reduction is large enough that we can run larger models at similar cost to a smaller full self-attention model.
+          </p>
+          <div class="pareto-grid">
+            <figure class="paper-figure">
+              <img src="assets/pareto-transition.gif" alt="Animation showing StateKV reducing compute while preserving performance on a Pareto frontier.">
+              <figcaption>Part 1. StateKV moves left on the Pareto frontier: much lower compute with similar performance.</figcaption>
+            </figure>
+            <figure class="paper-figure">
+              <img src="assets/pareto-larger-models.gif" alt="Animation showing StateKV enabling larger models at similar compute budgets.">
+              <figcaption>Part 2. The saved compute can be spent on a larger model while staying near the smaller full-attention cost.</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <section class="section scaling" id="scaling">
+          <div class="section-heading">
+            <p class="eyebrow">Longer sequences</p>
+            <h2>Why Linear Scaling Matters More Over Time</h2>
+          </div>
+          <p class="lead">
+            The same compute gap becomes much starker as videos get longer. Extrapolating from 512 frames to 1024 frames and then to 3600 frames, roughly an hour of video, the difference between O(N) and O(N^2) scaling dominates the practical cost of inference.
+          </p>
+          <figure class="paper-figure wide-result">
+            <img src="assets/frame-scaling.gif" alt="Animation extrapolating the Pareto frontier from 512 frames to 1024 frames and then 3600 frames.">
+            <figcaption>The frame-scaling extrapolation: as sequence length grows, the linear-time method becomes increasingly separated from full self-attention.</figcaption>
+          </figure>
+        </section>
+
+        <section class="section benchmarks" id="benchmarks">
+          <div class="section-heading">
+            <p class="eyebrow">Benchmarks</p>
+            <h2>Across Model Families, Parameter Scales, and Datasets</h2>
+          </div>
+          <p class="lead">
+            The same carried-memory intervention transfers across seven video VLMs with different parameter counts and model families, evaluated on three video benchmarks. StateKV closely approximates full self-attention while consistently outperforming prior streaming work, including ReKV.
+          </p>
+          <p class="lead">
+            For a fair efficiency comparison, sliding-window retrieval with 16 frames and StateKV with cache budget <em>B</em> = 4096 are compute-matched.
+          </p>
+          <figure class="paper-figure table-figure">
+            <img src="assets/results-table.png" alt="Results table comparing full self-attention, sliding window, ReKV, and StateKV across seven models and three datasets.">
+            <figcaption>StateKV stays close to full self-attention across backbones and datasets while improving over prior streaming baselines.</figcaption>
+          </figure>
+        </section>
+
+        <section class="section runtime" id="runtime">
+          <div class="section-heading">
+            <p class="eyebrow">Implementation</p>
+            <h2>A Triton Kernel for Practical Wall Time</h2>
+          </div>
+          <p class="lead">
+            StateKV needs attention-derived importance scores while building the cache. A naive eager implementation can expose those scores, but it materializes the full attention matrix. To make the cache-building path practical, we implement a custom Triton kernel inspired by FlashAttention-style tiling: it computes attention without forming the full matrix while accumulating the statistics needed for token selection.
+          </p>
+          <p class="lead">
+            This matters in wall-clock time. At the main cache budget we evaluate, <em>B</em> = 4096 tokens, StateKV is faster per frame than full self-attention with FlashAttention-2, even for the largest models in our comparison. The bounded cache turns the algorithmic scaling advantage into an actual runtime advantage.
+          </p>
+          <figure class="paper-figure runtime-figure">
+            <img src="assets/triton-walltime.png" alt="Wall-time comparison of StateKV with a Triton kernel against full self-attention with FlashAttention-2.">
+            <figcaption>Measured per-frame wall time on an NVIDIA L40S. With the Triton cache-building kernel, StateKV reaches lower latency than full self-attention with FlashAttention-2 at the evaluated 4096-token budget.</figcaption>
+          </figure>
+        </section>
+
+        <section class="section resources" id="resources">
+          <div class="section-heading">
+            <p class="eyebrow">Resources</p>
+            <h2>Code and Materials</h2>
+          </div>
+          <div class="resource-list">
+            <a href="https://github.com/ceyzaguirre4/StateKV/tree/main">GitHub repository</a>
+            <a href="https://arxiv.org/abs/2605.31598">arXiv paper</a>
+            <span>Model and data links coming soon</span>
+          </div>
+        </section>
+
+        <section class="section citation" id="citation">
+          <div class="section-heading">
+            <p class="eyebrow">Citation</p>
+            <h2>BibTeX</h2>
+          </div>
+          <pre><code>@misc{eyzaguirre2026linearscalingvideovlms,
+  title = {Linear Scaling Video VLMs for Long Video Understanding},
+  author = {Cristobal Eyzaguirre and Jiajun Wu and Juan Carlos Niebles},
+  year = {2026},
+  eprint = {2605.31598},
+  archivePrefix = {arXiv},
+  primaryClass = {cs.CV},
+  url = {https://arxiv.org/abs/2605.31598}
+}</code></pre>
+        </section>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <span>StateKV</span>
+      <a href="https://github.com/ceyzaguirre4/StateKV/tree/main">GitHub</a>
+    </footer>
+  </body>
+</html>
