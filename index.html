@@ -43,7 +43,9 @@
           </div>
         </div>
         <figure class="hero-media">
-          <img src="assets/statekv-animation.gif" alt="Animation of StateKV maintaining and updating compact state across frames.">
+          <video autoplay loop muted playsinline preload="auto" aria-label="Animation of StateKV maintaining and updating compact state across frames.">
+            <source src="assets/statekv-animation.webm" type="video/webm">
+          </video>
         </figure>
       </section>
 
@@ -65,7 +67,7 @@
 
         <section class="section figure-section" id="figure-1">
           <figure class="paper-figure full">
-            <img src="assets/figure-1.svg" alt="Figure 1 comparing long-video cost scaling for full attention and efficient alternatives.">
+            <img src="assets/figure-1.svg" alt="Figure 1 comparing long-video cost scaling for full attention and efficient alternatives." loading="lazy" decoding="async">
             <figcaption>Figure 1. Long-video inference becomes expensive when each frame carries the full history forward: full self-attention (gray) scales quadratically, while StateKV (red) keeps a linear cost.</figcaption>
           </figure>
         </section>
@@ -104,8 +106,8 @@
             <div class="figure-stack">
               <figure class="paper-figure combined-figure">
                 <div class="combined-assets">
-                  <img src="assets/observation-1-concentration.png" alt="Attention concentration analysis for pretrained video VLMs.">
-                  <img class="stats-panel" src="assets/stats-assumption1.svg" alt="Summary statistics showing how top-B tokens capture historical attention mass.">
+                  <img src="assets/observation-1-concentration.png" alt="Attention concentration analysis for pretrained video VLMs." loading="lazy" decoding="async">
+                  <img class="stats-panel" src="assets/stats-assumption1.svg" alt="Summary statistics showing how top-B tokens capture historical attention mass." loading="lazy" decoding="async">
                 </div>
                 <figcaption>Supplementary Figure 6. Attention concentrates on a small subset of past tokens.</figcaption>
               </figure>
@@ -130,11 +132,11 @@
             </div>
             <div class="figure-stack">
               <figure class="paper-figure">
-                <img src="assets/observation-1-recall.png" alt="Weighted recall analysis for selected tokens across adjacent frames.">
+                <img src="assets/observation-1-recall.png" alt="Weighted recall analysis for selected tokens across adjacent frames." loading="lazy" decoding="async">
                 <figcaption>Supplementary Figure 7. Useful tokens remain predictive across nearby frames.</figcaption>
               </figure>
               <figure class="paper-figure">
-                <img src="assets/observation-2-churn.png" alt="Token churn analysis showing that important token sets change gradually across frames.">
+                <img src="assets/observation-2-churn.png" alt="Token churn analysis showing that important token sets change gradually across frames." loading="lazy" decoding="async">
                 <figcaption>Supplementary Figure 8. Important tokens evolve gradually over time.</figcaption>
               </figure>
             </div>
@@ -166,13 +168,15 @@
               </p>
             </div>
             <figure class="paper-figure method-figure">
-              <img src="assets/method-statekv.png" alt="StateKV method diagram showing detailed and compressed states.">
+              <img src="assets/method-statekv.png" alt="StateKV method diagram showing detailed and compressed states." loading="lazy" decoding="async">
               <figcaption>StateKV keeps full information for decoding while carrying a compact recurrent memory between frames.</figcaption>
             </figure>
           </div>
 
           <figure class="animation">
-            <img src="assets/statekv-animation.gif" alt="StateKV animation showing compact state updates over a video stream.">
+            <video autoplay loop muted playsinline preload="none" aria-label="StateKV animation showing compact state updates over a video stream.">
+              <source src="assets/statekv-animation.webm" type="video/webm">
+            </video>
             <figcaption>StateKV updates a compact state after each frame and reuses it for the next step.</figcaption>
           </figure>
         </section>
@@ -187,11 +191,15 @@
           </p>
           <div class="pareto-grid">
             <figure class="paper-figure">
-              <img src="assets/pareto-transition.gif" alt="Animation showing StateKV reducing compute while preserving performance on a Pareto frontier.">
+              <video autoplay loop muted playsinline preload="none" aria-label="Animation showing StateKV reducing compute while preserving performance on a Pareto frontier.">
+                <source src="assets/pareto-transition.webm" type="video/webm">
+              </video>
               <figcaption>Part 1. StateKV moves left on the Pareto frontier: much lower compute with similar performance.</figcaption>
             </figure>
             <figure class="paper-figure">
-              <img src="assets/pareto-larger-models.gif" alt="Animation showing StateKV enabling larger models at similar compute budgets.">
+              <video autoplay loop muted playsinline preload="none" aria-label="Animation showing StateKV enabling larger models at similar compute budgets.">
+                <source src="assets/pareto-larger-models.webm" type="video/webm">
+              </video>
               <figcaption>Part 2. The saved compute can be spent on a larger model while staying near the smaller full-attention cost.</figcaption>
             </figure>
           </div>
@@ -206,7 +214,9 @@
             The same compute gap becomes much starker as videos get longer. Extrapolating from 512 frames to 1024 frames and then to 3600 frames, roughly an hour of video, the difference between O(N) and O(N^2) scaling dominates the practical cost of inference.
           </p>
           <figure class="paper-figure wide-result">
-            <img src="assets/frame-scaling.gif" alt="Animation extrapolating the Pareto frontier from 512 frames to 1024 frames and then 3600 frames.">
+            <video autoplay loop muted playsinline preload="none" aria-label="Animation extrapolating the Pareto frontier from 512 frames to 1024 frames and then 3600 frames.">
+              <source src="assets/frame-scaling.webm" type="video/webm">
+            </video>
             <figcaption>The frame-scaling extrapolation: as sequence length grows, the linear-time method becomes increasingly separated from full self-attention.</figcaption>
           </figure>
         </section>
@@ -223,7 +233,7 @@
             For a fair efficiency comparison, sliding-window retrieval with 16 frames and StateKV with cache budget <em>B</em> = 4096 are compute-matched.
           </p>
           <figure class="paper-figure table-figure">
-            <img src="assets/results-table.png" alt="Results table comparing full self-attention, sliding window, ReKV, and StateKV across seven models and three datasets.">
+            <img src="assets/results-table.png" alt="Results table comparing full self-attention, sliding window, ReKV, and StateKV across seven models and three datasets." loading="lazy" decoding="async">
             <figcaption>StateKV stays close to full self-attention across backbones and datasets while improving over prior streaming baselines.</figcaption>
           </figure>
         </section>
@@ -240,7 +250,7 @@
             This matters in wall-clock time. At the main cache budget we evaluate, <em>B</em> = 4096 tokens, StateKV is faster per frame than full self-attention with FlashAttention-2, even for the largest models in our comparison. The bounded cache turns the algorithmic scaling advantage into an actual runtime advantage.
           </p>
           <figure class="paper-figure runtime-figure">
-            <img src="assets/triton-walltime.png" alt="Wall-time comparison of StateKV with a Triton kernel against full self-attention with FlashAttention-2.">
+            <img src="assets/triton-walltime.png" alt="Wall-time comparison of StateKV with a Triton kernel against full self-attention with FlashAttention-2." loading="lazy" decoding="async">
             <figcaption>Measured per-frame wall time on an NVIDIA L40S. With the Triton cache-building kernel, StateKV reaches lower latency than full self-attention with FlashAttention-2 at the evaluated 4096-token budget.</figcaption>
           </figure>
         </section>

@@ -31,9 +31,15 @@ a {
   color: inherit;
 }
 
-img {
+img,
+video {
   display: block;
   max-width: 100%;
+}
+
+video {
+  width: 100%;
+  height: auto;
 }
 
 .site-header {
@@ -205,6 +211,12 @@ h3 {
   object-fit: cover;
 }
 
+.hero-media video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
 .article {
   background: #ffffff;
 }
@@ -255,6 +267,13 @@ h3 {
 
 .paper-figure img {
   width: 100%;
+  background: #ffffff;
+}
+
+.paper-figure video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
   background: #ffffff;
 }
 
@@ -371,6 +390,12 @@ h3 {
 
 .animation img {
   width: 100%;
+}
+
+.animation video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
 }
 
 .results {
