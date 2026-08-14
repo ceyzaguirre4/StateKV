@@ -12,11 +12,19 @@ from lmms_eval.models.chat.internvl3_streaming import PromptCacheState, Streamin
 class StateKVInternVL3(StreamingInternVL3):
     method_name = "StateKV"
 
-    def __init__(self, cstate_size: int = 4096, **kwargs) -> None:
+    def __init__(
+        self,
+        cstate_size: int = 4096,
+        cache_attn_implementation: str = "triton",
+        **kwargs,
+    ) -> None:
         if int(cstate_size) <= 0:
             raise ValueError("cstate_size must be a positive token count")
         self.cstate_size = int(cstate_size)
-        super().__init__(**kwargs)
+        super().__init__(
+            cache_attn_implementation=cache_attn_implementation,
+            **kwargs,
+        )
 
     def _carried_state_size(self, tokens_per_frame: int) -> int:
         return self.cstate_size
@@ -24,7 +32,7 @@ class StateKVInternVL3(StreamingInternVL3):
     def _prune_carried_state(
         self,
         state: PromptCacheState,
-        attention_weights: list[torch.Tensor | None],
+        key_scores: list[torch.Tensor],
         max_tokens: int,
     ) -> PromptCacheState:
         """Select the most-attended keys independently in each layer and KV head."""
@@ -32,11 +40,10 @@ class StateKVInternVL3(StreamingInternVL3):
         batch_size = None
         for layer_index, layer in enumerate(state.past_key_values.layers):
             batch_size, num_kv_heads, key_length, key_dim = layer.keys.shape
-            weights = attention_weights[layer_index]
-            if weights is None or weights.shape[0] != batch_size or weights.shape[-1] != key_length:
-                raise RuntimeError(f"Invalid attention weights for layer {layer_index}")
+            scores = key_scores[layer_index]
+            if scores.shape[0] != batch_size or scores.shape[-1] != key_length:
+                raise RuntimeError(f"Invalid key scores for layer {layer_index}")
 
-            scores = weights.float().sum(dim=2)
             num_attention_heads = scores.shape[1]
             if num_attention_heads != num_kv_heads:
                 if num_attention_heads % num_kv_heads:

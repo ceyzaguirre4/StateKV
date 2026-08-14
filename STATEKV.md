@@ -11,7 +11,7 @@ three lmms-eval model IDs:
 | --- | --- | --- |
 | `internvl3` | Full self-attention reference | 512 frames |
 | `internvl3_rekv` | Recency-window baseline | 16 retrieved frames |
-| `statekv_internvl3` | StateKV | 4,096-token carried state |
+| `statekv_internvl3` | StateKV with Triton attention | 4,096-token carried state |
 
 All three paths sample at no more than 1 FPS, cap each video at 512 frames,
 use batch size 1, retain the full per-frame KV cache for answer generation,
@@ -20,9 +20,9 @@ and evaluate VideoMME without subtitles.
 ## Environment
 
 The reported runs used Python 3.10, PyTorch 2.6.0, torchvision 0.21.0,
-Transformers 4.57.1, Accelerate 1.10.1, Decord 0.6.0, and FlashAttention
-2.8.3. The provided Conda environment targets Linux with CUDA 12.4, matching
-the validated setup:
+Transformers 4.57.1, Accelerate 1.10.1, Decord 0.6.0, FlashAttention 2.8.3,
+and Triton 3.2.0. The provided Conda environment targets Linux with CUDA 12.4,
+matching the validated setup:
 
 ```bash
 conda env create -f environment.yml
@@ -36,9 +36,12 @@ its build isolation must be disabled; this step needs a CUDA 12.4-compatible
 toolkit and compiler. On a different CUDA version, adjust the PyTorch wheel
 index and build FlashAttention against that PyTorch installation.
 
+StateKV uses the paper's two-pass Triton kernel during frame-by-frame cache
+construction. The kernel computes the attention output and per-key attention
+mass without materializing the full attention matrix. Set
+`cache_attn_implementation=eager` to use the numerical reference path instead.
 StateKV and ReKV use FlashAttention 2 for answer generation when it is
-installed, matching the reported runs, and otherwise fall back to PyTorch
-SDPA. Their frame-by-frame cache construction always uses eager attention.
+installed, and otherwise fall back to PyTorch SDPA.
 
 Set `HF_TOKEN` if the local Hugging Face configuration requires it for the
 VideoMME dataset. The first run downloads both the checkpoint and dataset.
@@ -63,7 +66,7 @@ The equivalent direct StateKV command is:
 ```bash
 accelerate launch --num_processes 1 --mixed_precision bf16 -m lmms_eval \
   --model statekv_internvl3 \
-  --model_args pretrained=OpenGVLab/InternVL3-1B,max_num_frames=512,max_fps=1,cstate_size=4096 \
+  --model_args pretrained=OpenGVLab/InternVL3-1B,max_num_frames=512,max_fps=1,cstate_size=4096,cache_attn_implementation=triton \
   --tasks videomme \
   --batch_size 1 \
   --log_samples \
@@ -89,6 +92,8 @@ The exposed release hyperparameters are intentionally narrow:
 - `max_num_frames` caps uniformly sampled frames.
 - `max_fps` caps sampling rate before the frame-count cap is applied.
 - `cstate_size` controls StateKV's fixed carried-state token budget.
+- `cache_attn_implementation` selects `triton` (default) or the `eager`
+  numerical reference for StateKV cache construction.
 - `retrieved_frames` controls the recency baseline's window size.
 
 StateKV selects the carried state exclusively from video-to-video attention.

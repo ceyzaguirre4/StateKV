@@ -24,11 +24,11 @@ class ReKVInternVL3(StreamingInternVL3):
     def _prune_carried_state(
         self,
         state: PromptCacheState,
-        attention_weights: list[torch.Tensor | None],
+        key_scores: list[torch.Tensor],
         max_tokens: int,
     ) -> PromptCacheState:
         """Retain the newest tokens in every layer of the carried cache."""
-        del attention_weights
+        del key_scores
         kept_tokens = None
         batch_size = None
         for layer in state.past_key_values.layers:

@@ -24,7 +24,7 @@ case "${METHOD}" in
     ;;
   statekv)
     LMMS_MODEL="statekv_internvl3"
-    MODEL_ARGS="${MODEL_ARGS},cstate_size=4096"
+    MODEL_ARGS="${MODEL_ARGS},cstate_size=4096,cache_attn_implementation=triton"
     ;;
   *) echo "METHOD must be one of: full, rekv, statekv" >&2; exit 2 ;;
 esac

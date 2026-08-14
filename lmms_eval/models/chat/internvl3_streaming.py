@@ -50,6 +50,7 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
         batch_size: Union[int, str] = 1,
         max_num_frames: int = 32,
         max_fps: Optional[float] = None,
+        cache_attn_implementation: str = "eager",
         **kwargs,
     ) -> None:
         super().__init__()
@@ -61,6 +62,10 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
             raise ValueError("max_num_frames must be positive")
         if max_fps is not None and float(max_fps) <= 0:
             raise ValueError("max_fps must be positive")
+        if cache_attn_implementation not in {"eager", "triton"}:
+            raise ValueError(
+                "cache_attn_implementation must be 'eager' or 'triton'"
+            )
 
         accelerator = Accelerator()
         self.accelerator = accelerator
@@ -87,6 +92,7 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
 
         self.max_num_frames = int(max_num_frames)
         self.max_fps = float(max_fps) if max_fps is not None else None
+        self.cache_attn_implementation = cache_attn_implementation
         self._tokenizer = AutoTokenizer.from_pretrained(pretrained, trust_remote_code=True)
         self.model.img_context_token_id = self.tokenizer.convert_tokens_to_ids("<IMG_CONTEXT>")
         self._config = self.model.config
@@ -94,6 +100,10 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
         self.batch_size_per_gpu = 1
         self.generation_attn_implementation = (
             "flash_attention_2" if is_flash_attn_2_available() else "sdpa"
+        )
+        eval_logger.info(
+            f"{self.method_name} cache attention: {self.cache_attn_implementation}; "
+            f"generation attention: {self.generation_attn_implementation}"
         )
 
         if accelerator.num_processes > 1:
@@ -117,7 +127,7 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
     def _prune_carried_state(
         self,
         state: PromptCacheState,
-        attention_weights: list[torch.Tensor | None],
+        key_scores: list[torch.Tensor],
         max_tokens: int,
     ) -> PromptCacheState:
         raise NotImplementedError
@@ -245,25 +255,30 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
         position_embeddings = model.rotary_emb(hidden_states, position_ids)
         # ----------------------------------------------------------------
 
-        # Restore upstream mask creation (needed when applying attention)
-        # It may already have been prepared by e.g. `generate`; here we mirror upstream behavior.
-        if not isinstance(causal_mask_mapping := attention_mask, dict):
-            mask_kwargs = {
-                "config": model.config,
-                "input_embeds": inputs_embeds,
-                "attention_mask": attention_mask,
-                "cache_position": cache_position,
-                "past_key_values": past_key_values,
-                "position_ids": position_ids,
-            }
-            causal_mask_mapping = {
-                "full_attention": create_causal_mask(**mask_kwargs),
-            }
-            if getattr(model, "has_sliding_layers", False):
-                causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(**mask_kwargs)
+        causal_mask_mapping = None
+        if self.cache_attn_implementation == "eager":
+            causal_mask_mapping = attention_mask
+            if not isinstance(causal_mask_mapping, dict):
+                mask_kwargs = {
+                    "config": model.config,
+                    "input_embeds": inputs_embeds,
+                    "attention_mask": attention_mask,
+                    "cache_position": cache_position,
+                    "past_key_values": past_key_values,
+                    "position_ids": position_ids,
+                }
+                causal_mask_mapping = {
+                    "full_attention": create_causal_mask(**mask_kwargs),
+                }
+                if getattr(model, "has_sliding_layers", False):
+                    causal_mask_mapping["sliding_attention"] = create_sliding_window_causal_mask(
+                        **mask_kwargs
+                    )
+        elif attention_mask is None or not bool((attention_mask != 0).all()):
+            raise RuntimeError("Triton cache attention requires an unpadded sequence")
 
         # ---- iterate decoder layers as in lmms_model.model.language_model.model.forward ----
-        attn_weights_layers = []    # keep track of attention weights per layer for pruning later
+        key_scores_layers = []
 
         for layer in model.layers[: model.config.num_hidden_layers]:
             # ---- code from lmms_model.model.language_model.model.layers[0].forward ----
@@ -291,21 +306,45 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
                     key_states, value_states, attn.layer_idx, cache_kwargs
                 )
 
-            # select attention implementation and compute attention with mask
             if model.config._attn_implementation != "eager":
-                raise RuntimeError(f"{self.method_name} cache construction requires eager attention")
+                raise RuntimeError(
+                    f"{self.method_name} cache construction requires eager model masks"
+                )
 
-            attn_output, attn_weights = eager_attention_forward(
-                attn,
-                query_states,
-                key_states,
-                value_states,
-                causal_mask_mapping[layer.attention_type],
-                dropout=0.0 if not model.training else attn.attention_dropout,
-                scaling=attn.scaling,
-                sliding_window=attn.sliding_window,
-            )
-            attn_weights_layers.append(attn_weights)
+            if self.cache_attn_implementation == "triton":
+                if layer.attention_type != "full_attention":
+                    raise RuntimeError("Triton cache attention requires full-attention layers")
+                from lmms_eval.models.model_utils.triton_attn_scores import (
+                    flash_attn_with_key_scores,
+                )
+
+                cache_length = key_states.shape[-2] - query_states.shape[-2]
+                attn_output, key_scores = flash_attn_with_key_scores(
+                    query_states,
+                    key_states,
+                    value_states,
+                    sm_scale=attn.scaling,
+                    causal=True,
+                    cache_len=cache_length,
+                )
+                # The Triton kernel follows the Q/K/V layout [B, H, Q, D],
+                # while Transformers attention backends return [B, Q, H, D].
+                attn_output = attn_output.transpose(1, 2).contiguous().to(
+                    query_states.dtype
+                )
+            else:
+                attn_output, attn_weights = eager_attention_forward(
+                    attn,
+                    query_states,
+                    key_states,
+                    value_states,
+                    causal_mask_mapping[layer.attention_type],
+                    dropout=0.0 if not model.training else attn.attention_dropout,
+                    scaling=attn.scaling,
+                    sliding_window=attn.sliding_window,
+                )
+                key_scores = attn_weights.float().sum(dim=2)
+            key_scores_layers.append(key_scores)
 
             attn_output = attn_output.reshape(*input_shape, -1).contiguous()
             attn_output = attn.o_proj(attn_output)
@@ -326,7 +365,7 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
         result = {
             "last_hidden_state": hidden_states,
             "past_key_values": past_key_values if use_cache else None,
-            "attn_weights_layers": attn_weights_layers,
+            "key_scores_layers": key_scores_layers,
         }
         return result
 
@@ -558,7 +597,7 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
             past_key_values=cstate.past_key_values,
             cache_position=cache_position,
         )
-        attn_layers = out_cstate["attn_weights_layers"]    # video-to-video attention weights
+        key_scores_layers = out_cstate["key_scores_layers"]
         cstate.past_key_values = out_cstate["past_key_values"]
 
         # Update dstate with the same key/value states that were added to cstate
@@ -580,7 +619,7 @@ class StreamingInternVL3(VideoPrefetchMixin, lmms):
         # Select the next carried state using video-to-video attention only.
         cstate = self._prune_carried_state(
             state=cstate,
-            attention_weights=attn_layers,
+            key_scores=key_scores_layers,
             max_tokens=cstate_size,
         )
 

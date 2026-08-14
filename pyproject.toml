@@ -52,6 +52,7 @@ dependencies = [
     "tqdm-multiprocess",
     # StateKV mirrors the decoder attention internals from this release.
     "transformers>=4.57.1,<4.58",
+    "triton>=3.2,<3.3; platform_system == 'Linux'",
     "transformers-stream-generator",
     "zstandard",
     "pillow",
