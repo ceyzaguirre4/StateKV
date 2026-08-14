@@ -157,13 +157,16 @@ def videomme_doc_to_visual(doc):
 
 
 def videomme_doc_to_text(doc, lmms_eval_specific_kwargs=None):
+    lmms_eval_specific_kwargs = lmms_eval_specific_kwargs or {}
     option_prompt = "Select the best answer to the following multiple-choice question based on the video and the subtitles. Respond with only the letter (A, B, C, or D) of the correct option."
     question = doc["question"]
     option = "\n".join([f"{opt}" for i, opt in enumerate(doc["options"])])
     question = question + "\n" + option
-    post_prompt = lmms_eval_specific_kwargs["post_prompt"] if "post_prompt" in lmms_eval_specific_kwargs else "The best answer is:"
-    full_prompt = option_prompt + "\n" + question + "\n" + post_prompt
-    return full_prompt
+    post_prompt = lmms_eval_specific_kwargs.get("post_prompt", "The best answer is:")
+    prompt_parts = [option_prompt, question]
+    if post_prompt:
+        prompt_parts.append(post_prompt)
+    return "\n".join(prompt_parts)
 
 
 # Frames + Subs

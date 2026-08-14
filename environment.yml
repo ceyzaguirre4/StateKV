@@ -1,0 +1,18 @@
+name: statekv
+
+channels:
+  - conda-forge
+
+dependencies:
+  - python=3.10
+  - pip
+  - ninja
+  - packaging
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu124
+      - torch==2.6.0+cu124
+      - torchvision==0.21.0+cu124
+      - accelerate==1.10.1
+      - transformers==4.57.1
+      - 'decord==0.6.0; platform_system == "Linux"'
+      - -e .

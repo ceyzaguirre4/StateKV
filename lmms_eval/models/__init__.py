@@ -82,8 +82,11 @@ AVAILABLE_SIMPLE_MODELS = {
 }
 
 AVAILABLE_CHAT_TEMPLATE_MODELS = {
+    "internvl3": "InternVL3",
+    "internvl3_rekv": "ReKVInternVL3",
     "llava_hf": "LlavaHf",
     "qwen2_5_vl": "Qwen2_5_VL",
+    "statekv_internvl3": "StateKVInternVL3",
     "thyme": "Thyme",
     "openai_compatible": "OpenAICompatible",
     "vllm": "VLLM",
